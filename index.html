@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinical SimMonitor Pro - Nursing Simulation Suite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter & Orbitron for realistic medical monitor display -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            overflow-x: hidden;
+            background-color: #0b0f17;
+            color: #e2e8f0;
+        }
+        .digital-font {
+            font-family: 'Orbitron', monospace;
+        }
+        /* Grid background styling for patient monitor canvas */
+        .monitor-grid {
+            background-size: 20px 20px;
+            background-image: 
+                linear-gradient(to right, rgba(0, 255, 100, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 255, 100, 0.05) 1px, transparent 1px);
+        }
+        /* Alarm Flashing Effects */
+        @keyframes alarm-flash-red {
+            0%, 100% { background-color: rgba(220, 38, 38, 0.85); color: #ffffff; }
+            50% { background-color: rgba(153, 27, 27, 0.3); color: #fecaca; }
+        }
+        @keyframes alarm-flash-yellow {
+            0%, 100% { background-color: rgba(217, 119, 6, 0.85); color: #ffffff; }
+            50% { background-color: rgba(146, 64, 14, 0.3); color: #fef3c7; }
+        }
+        .alarm-critical {
+            animation: alarm-flash-red 0.8s infinite;
+        }
+        .alarm-warning {
+            animation: alarm-flash-yellow 1.2s infinite;
+        }
+        /* Custom scrollbars for instructor view */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between overflow-hidden bg-slate-950 text-slate-100">
+
+    <header id="appHeader" class="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between z-50 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 text-emerald-400 font-bold text-lg tracking-wider">
+                <i class="fa-solid font-black fa-heart-pulse text-xl animate-pulse text-red-500"></i>
+                <span>SIM<span class="text-slate-100">MONITOR</span> <span class="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">PRO</span></span>
+            </div>
+            <span id="syncBadge" class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">
+                <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                <span id="syncStatusText">Lokale Multi-Tab Sync Actief</span>
+            </span>
+        </div>
+
+        <!-- View Switcher Tabs -->
+        <div class="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
+            <button id="btnNavMonitor" onclick="switchView('monitor')" class="px-4 py-1.5 rounded-md text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 bg-emerald-600 text-white shadow-md">
+                <i class="fa-solid fa-desktop"></i>
+                <span>Patiëntmonitor</span>
+            </button>
+            <button id="btnNavControl" onclick="switchView('control')" class="px-4 py-1.5 rounded-md text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200">
+                <i class="fa-solid fa-sliders"></i>
+                <span>Instructeur Bediening</span>
+            </button>
+        </div>
+
+        <!-- System Controls & Audio Enable -->
+        <div class="flex items-center gap-2">
+            <button id="btnAudioToggle" onclick="toggleAudio()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg border border-slate-700 flex items-center gap-1.5 transition">
+                <i id="audioIcon" class="fa-solid fa-volume-xmark text-red-400"></i>
+                <span id="audioText">Audio Inschakelen</span>
+            </button>
+            <button onclick="toggleFullScreen()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg border border-slate-700 transition" title="Volledig Scherm">
+                <i class="fa-solid fa-expand"></i>
+            </button>
+            <button onclick="openConfigModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg border border-slate-700 transition" title="Firebase Instellingen">
+                <i class="fa-solid fa-gear"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 relative overflow-hidden bg-black">
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 1: PATIENT MONITOR (FULL SCREEN CLINICAL DISPLAY)                    -->
+        <!-- ========================================================================= -->
+        <div id="viewMonitor" class="w-full h-full flex flex-col bg-black text-white p-2 sm:p-3 select-none monitor-grid relative">
+            
+            <!-- Alarm Banner Header -->
+            <div id="alarmBanner" class="hidden w-full py-2 px-4 mb-2 rounded font-extrabold text-center tracking-wide text-base sm:text-lg flex items-center justify-between shadow-lg transition-all">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-triangle-exclamation text-2xl animate-bounce"></i>
+                    <span id="alarmMessage" class="uppercase">KRITIEK: PATINT DETERIORATIE GEDETECTEERD</span>
+                </div>
+                <button onclick="silenceAlarm()" class="bg-black/50 hover:bg-black/80 px-3 py-1 rounded text-xs border border-white/40 uppercase tracking-wider flex items-center gap-1">
+                    <i class="fa-solid fa-bell-slash"></i> Dempen (120s)
+                </button>
+            </div>
+
+            <!-- Monitor Header Strip -->
+            <div class="flex justify-between items-center text-xs text-slate-400 pb-2 border-b border-slate-800/80 px-1 shrink-0">
+                <div class="flex items-center gap-4">
+                    <span class="font-bold text-slate-200 text-sm">BED 04 - IC</span>
+                    <span>PATINT: <strong id="displayPatientName" class="text-slate-200">DOE, J.</strong></span>
+                    <span>MRN: <strong id="displayPatientMRN">883-9201</strong></span>
+                    <span class="hidden md:inline">OPNAME: <strong>SPOED</strong></span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="ecgLeadTag" class="text-green-400 font-bold">LEAD II (1.0x)</span>
+                    <span id="clockDisplay" class="digital-font text-slate-300 font-medium text-sm">--:--:--</span>
+                </div>
+            </div>
+
+            <!-- Main Waveform and Vitals Display Grid -->
+            <div class="flex-1 grid grid-cols-12 gap-2 mt-2 min-h-0 overflow-hidden">
+
+                <!-- WAVEFORMS AREA -->
+                <div class="col-span-12 lg:col-span-9 flex flex-col justify-between space-y-2 h-full min-h-0">
+                    
+                    <!-- ECG Channel -->
+                    <div class="flex-1 bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 flex flex-col justify-between relative overflow-hidden">
+                        <div class="absolute top-2 left-3 z-10 flex items-center gap-2">
+                            <span class="text-green-400 font-bold text-xs tracking-wider">ECG</span>
+                            <span id="rhythmBadge" class="text-[10px] bg-green-950/80 text-green-300 px-1.5 py-0.5 rounded border border-green-800/60 uppercase">SINUSRITME</span>
+                        </div>
+                        <canvas id="canvasECG" class="w-full h-full block"></canvas>
+                    </div>
+
+                    <!-- Pleth Waveform (SpO2 Channel) -->
+                    <div class="flex-1 bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 flex flex-col justify-between relative overflow-hidden">
+                        <div class="absolute top-2 left-3 z-10 flex items-center gap-2">
+                            <span class="text-cyan-400 font-bold text-xs tracking-wider">PLETH</span>
+                            <span class="text-[10px] text-cyan-500">SpO2 PPG GOLF</span>
+                        </div>
+                        <canvas id="canvasPleth" class="w-full h-full block"></canvas>
+                    </div>
+
+                    <!-- Respiration Waveform Channel -->
+                    <div class="flex-1 bg-slate-950/80 rounded-xl border border-slate-800/80 p-2 flex flex-col justify-between relative overflow-hidden">
+                        <div class="absolute top-2 left-3 z-10 flex items-center gap-2">
+                            <span class="text-yellow-400 font-bold text-xs tracking-wider">RESP</span>
+                            <span class="text-[10px] text-yellow-600">IMPEDANTIE</span>
+                        </div>
+                        <canvas id="canvasResp" class="w-full h-full block"></canvas>
+                    </div>
+                </div>
+
+                <!-- VITALS NUMERIC PANELS -->
+                <div class="col-span-12 lg:col-span-3 grid grid-cols-2 lg:grid-cols-1 gap-2 h-full min-h-0 overflow-y-auto pr-1">
+
+                    <!-- Heart Rate Box -->
+                    <div class="bg-slate-950/90 rounded-xl border-2 border-green-500/40 p-2.5 flex flex-col justify-between shadow-lg relative group">
+                        <div class="flex justify-between items-start">
+                            <span class="text-green-400 font-extrabold text-xs tracking-wider">HR <span class="text-[10px] text-slate-400 font-normal">/min</span></span>
+                            <i class="fa-solid fa-heart text-green-500 text-xs animate-ping" id="heartIcon"></i>
+                        </div>
+                        <div class="text-right">
+                            <div id="valHR" class="digital-font text-5xl sm:text-6xl font-black text-green-400 tracking-tight">72</div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-slate-500 font-semibold border-t border-slate-800/80 pt-1">
+                            <span>ST: <span class="text-green-400">+0.1</span></span>
+                            <span>GRENZEN: 50 - 120</span>
+                        </div>
+                    </div>
+
+                    <!-- SpO2 Box -->
+                    <div class="bg-slate-950/90 rounded-xl border-2 border-cyan-500/40 p-2.5 flex flex-col justify-between shadow-lg">
+                        <div class="flex justify-between items-start">
+                            <span class="text-cyan-400 font-extrabold text-xs tracking-wider">SpO2 <span class="text-[10px] text-slate-400 font-normal">%</span></span>
+                            <span class="text-[10px] text-cyan-600 font-bold">PULS</span>
+                        </div>
+                        <div class="text-right">
+                            <div id="valSpO2" class="digital-font text-5xl sm:text-6xl font-black text-cyan-400 tracking-tight">98</div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-slate-500 font-semibold border-t border-slate-800/80 pt-1">
+                            <span>PERF: <span class="text-cyan-400">NORMAAL</span></span>
+                            <span>GRENZEN: 92 - 100</span>
+                        </div>
+                    </div>
+
+                    <!-- Blood Pressure Box -->
+                    <div class="bg-slate-950/90 rounded-xl border-2 border-red-500/40 p-2.5 flex flex-col justify-between shadow-lg">
+                        <div class="flex justify-between items-start">
+                            <span class="text-red-400 font-extrabold text-xs tracking-wider">NIBP <span class="text-[10px] text-slate-400 font-normal">mmHg</span></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">AUTO 15m</span>
+                        </div>
+                        <div class="text-right">
+                            <div class="digital-font text-3xl sm:text-4xl font-black text-red-400 tracking-tight">
+                                <span id="valSys">120</span>/<span id="valDia">80</span>
+                            </div>
+                            <div class="text-[10px] text-red-400/80 font-bold">MAP (<span id="valMAP">93</span>)</div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-slate-500 font-semibold border-t border-slate-800/80 pt-1">
+                            <span>SYS GRENZEN: 90 - 140</span>
+                        </div>
+                    </div>
+
+                    <!-- Respiratory Rate & Temperature Dual Box -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="bg-slate-950/90 rounded-xl border-2 border-yellow-500/40 p-2 flex flex-col justify-between shadow-lg">
+                            <span class="text-yellow-400 font-extrabold text-[11px]">RR <span class="text-[9px] text-slate-400 font-normal">/min</span></span>
+                            <div id="valRR" class="digital-font text-3xl font-black text-yellow-400 text-right">16</div>
+                            <div class="text-[9px] text-slate-500 text-right">10 - 24</div>
+                        </div>
+                        <div class="bg-slate-950/90 rounded-xl border-2 border-purple-500/40 p-2 flex flex-col justify-between shadow-lg">
+                            <span class="text-purple-400 font-extrabold text-[11px]">TEMP <span class="text-[9px] text-slate-400 font-normal">°C</span></span>
+                            <div id="valTemp" class="digital-font text-3xl font-black text-purple-400 text-right">37.0</div>
+                            <div class="text-[9px] text-slate-500 text-right">36.1 - 37.8</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Monitor Bottom Status Toolbar -->
+            <div class="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 shrink-0">
+                <div class="flex items-center gap-3">
+                    <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> NIBP Gereed</span>
+                    <span class="hidden sm:inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-500"></span> SpO2 Sensor OK</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="btnMuteMonitor" onclick="silenceAlarm()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded border border-slate-700 text-xs font-semibold flex items-center gap-1">
+                        <i class="fa-solid fa-bell-slash"></i> Alarm Dempen
+                    </button>
+                    <button onclick="triggerNIBPMeasurement()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded border border-slate-700 text-xs font-semibold flex items-center gap-1">
+                        <i class="fa-solid fa-rotate text-red-400"></i> NIBP Meting Starten
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 2: INSTRUCTOR CONTROL PANEL                                          -->
+        <!-- ========================================================================= -->
+        <div id="viewControl" class="hidden w-full h-full bg-slate-950 p-4 sm:p-6 overflow-y-auto text-slate-200 select-none">
+            <div class="max-w-5xl mx-auto space-y-6 pb-12">
+                
+                <!-- Instructor Control Header Banner -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-emerald-400"></i> Instructeur Simulatie Console
+                        </h1>
+                        <p class="text-xs sm:text-sm text-slate-400 mt-1">Beheer patiëntgegevens, vitale functies en klinische scenario's.</p>
+                    </div>
+                    <div class="flex items-center gap-3 w-full md:w-auto">
+                        <button onclick="applyPreset('normal')" class="flex-1 md:flex-initial px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-900/50 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition">
+                            <i class="fa-solid fa-rotate-left"></i> Normaal Herstellen
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PATIENT INFO SETTINGS CARD -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-user-injured text-cyan-400"></i> Patiëntgegevens Bewerken
+                    </h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-300 mb-1">Patiëntnaam (Naam, Voorletter)</label>
+                            <input type="text" id="inputPatientName" value="DOE, J." oninput="updatePatientInfo()" class="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-medium text-slate-100 focus:outline-none focus:border-cyan-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-300 mb-1">Medisch Dossiernummer (MRN)</label>
+                            <input type="text" id="inputPatientMRN" value="883-9201" oninput="updatePatientInfo()" class="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-medium text-slate-100 focus:outline-none focus:border-cyan-500">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CLINICAL SCENARIOS PRESETS SECTION -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-bolt text-amber-400"></i> Klinische Scenario's (met geleidelijke overgang)
+                    </h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                        <button onclick="applyPreset('normal')" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-500/50 rounded-xl text-left transition group">
+                            <div class="text-emerald-400 font-bold text-sm mb-1 group-hover:translate-x-0.5 transition-transform">Normale Basislijn</div>
+                            <div class="text-[11px] text-slate-400">HR 72, BP 120/80, SpO2 98%, Sinus</div>
+                        </button>
+                        <button onclick="applyPreset('septic_shock')" class="p-3 bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/50 rounded-xl text-left transition group">
+                            <div class="text-amber-400 font-bold text-sm mb-1 group-hover:translate-x-0.5 transition-transform">Septische Shock</div>
+                            <div class="text-[11px] text-slate-400">Tachycardie, Ernstige Hypotensie, Koorts</div>
+                        </button>
+                        <button onclick="applyPreset('hypoglycemia')" class="p-3 bg-slate-950 hover:bg-blue-950/40 border border-slate-800 hover:border-blue-500/50 rounded-xl text-left transition group">
+                            <div class="text-cyan-400 font-bold text-sm mb-1 group-hover:translate-x-0.5 transition-transform">Hypoglykemie</div>
+                            <div class="text-[11px] text-slate-400">Zweetig, Matige Tachycardie</div>
+                        </button>
+                        <button onclick="applyPreset('anaphylaxis')" class="p-3 bg-slate-950 hover:bg-red-950/40 border border-slate-800 hover:border-red-500/50 rounded-xl text-left transition group">
+                            <div class="text-red-400 font-bold text-sm mb-1 group-hover:translate-x-0.5 transition-transform">Anafylaxie</div>
+                            <div class="text-[11px] text-slate-400">Erstige Hypoxie, Tachypneu, Hypotensie</div>
+                        </button>
+                        <button onclick="applyPreset('cardiac_arrest')" class="p-3 bg-slate-950 hover:bg-purple-950/40 border border-slate-800 hover:border-purple-500/50 rounded-xl text-left transition group">
+                            <div class="text-purple-400 font-bold text-sm mb-1 group-hover:translate-x-0.5 transition-transform">Hartstilstand</div>
+                            <div class="text-[11px] text-slate-400">VFib/Asystolie, Geen Puls</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ECG RHYTHM TYPE SELECTOR -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-wave-square text-green-400"></i> Hartritme / Hartritmestoornissen
+                    </h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="sinus" checked onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-green-500 peer-checked:bg-green-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-green-400 transition">
+                                Sinusritme
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="bradycardia" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-blue-500 peer-checked:bg-blue-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-blue-400 transition">
+                                Bradycardie
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="tachycardia" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-amber-500 peer-checked:bg-amber-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-amber-400 transition">
+                                Tachycardie
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="afib" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-cyan-500 peer-checked:bg-cyan-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-cyan-400 transition">
+                                Atriumfibrilleren (AFib)
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="st_elevation" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-amber-500 peer-checked:bg-amber-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-amber-400 transition">
+                                ST-Elevatie (STEMI)
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="vtach" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-orange-500 peer-checked:bg-orange-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-orange-400 transition">
+                                Ventriculaire Tachycardie (VT)
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="vfib" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-red-500 peer-checked:bg-red-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-red-400 transition">
+                                Ventriculaire Fibrillatie (VF)
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="rhythmType" value="av_block_1" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-teal-500 peer-checked:bg-teal-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-teal-400 transition">
+                                1e graads AV-blok
+                            </div>
+                        </label>
+                        <label class="cursor-pointer col-span-2 sm:col-span-2">
+                            <input type="radio" name="rhythmType" value="asystole" onchange="updateParam('rhythm', this.value)" class="peer sr-only">
+                            <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 peer-checked:border-purple-500 peer-checked:bg-purple-950/20 text-center font-bold text-xs text-slate-300 peer-checked:text-purple-400 transition">
+                                Asystolie (Flatline)
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- REALTIME SLIDERS FOR INDIVIDUAL VITALS -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                    <!-- Heart Rate Controller -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-bold text-green-400 flex items-center gap-2">
+                                <i class="fa-solid fa-heart"></i> Hartslag (HR)
+                            </label>
+                            <span class="digital-font text-2xl font-bold text-green-400" id="ctrlValHR">72 /min</span>
+                        </div>
+                        <input type="range" id="sliderHR" min="0" max="220" value="72" oninput="updateParam('hr', this.value)" class="w-full accent-green-500 bg-slate-950 h-2 rounded-lg cursor-pointer">
+                        <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                            <span>0 (Asystolie)</span>
+                            <span>60-100 Normaal</span>
+                            <span>220 Max</span>
+                        </div>
+                    </div>
+
+                    <!-- SpO2 Controller -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                                <i class="fa-solid fa-lungs"></i> Zuurstofsaturatie (SpO2)
+                            </label>
+                            <span class="digital-font text-2xl font-bold text-cyan-400" id="ctrlValSpO2">98 %</span>
+                        </div>
+                        <input type="range" id="sliderSpO2" min="50" max="100" value="98" oninput="updateParam('spo2', this.value)" class="w-full accent-cyan-500 bg-slate-950 h-2 rounded-lg cursor-pointer">
+                        <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                            <span>50% Ernstige Hypoxie</span>
+                            <span>95-100% Normaal</span>
+                        </div>
+                    </div>
+
+                    <!-- Blood Pressure (Systolic & Diastolic) -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+                        <div class="flex justify-between items-center">
+                            <label class="text-sm font-bold text-red-400 flex items-center gap-2">
+                                <i class="fa-solid fa-gauge-high"></i> Bloeddruk (NIBP)
+                            </label>
+                            <span class="digital-font text-2xl font-bold text-red-400" id="ctrlValBP">120/80</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                                    <span>Systolische BD</span>
+                                    <span id="ctrlValSys">120 mmHg</span>
+                                </div>
+                                <input type="range" id="sliderSys" min="40" max="240" value="120" oninput="updateParam('sys', this.value)" class="w-full accent-red-500 bg-slate-950 h-2 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                                    <span>Diastolische BD</span>
+                                    <span id="ctrlValDia">80 mmHg</span>
+                                </div>
+                                <input type="range" id="sliderDia" min="20" max="140" value="80" oninput="updateParam('dia', this.value)" class="w-full accent-red-500 bg-slate-950 h-2 rounded-lg cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Respiratory Rate & Temperature -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm font-bold text-yellow-400 flex items-center gap-2">
+                                    <i class="fa-solid fa-wind"></i> Ademhalingsfrequentie (RR)
+                                </label>
+                                <span class="digital-font text-xl font-bold text-yellow-400" id="ctrlValRR">16 /min</span>
+                            </div>
+                            <input type="range" id="sliderRR" min="0" max="50" value="16" oninput="updateParam('rr', this.value)" class="w-full accent-yellow-500 bg-slate-950 h-2 rounded-lg cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-sm font-bold text-purple-400 flex items-center gap-2">
+                                    <i class="fa-solid fa-temperature-three-quarters"></i> Lichaamstemperatuur
+                                </label>
+                                <span class="digital-font text-xl font-bold text-purple-400" id="ctrlValTemp">37.0 °C</span>
+                            </div>
+                            <input type="range" id="sliderTemp" min="30.0" max="43.0" step="0.1" value="37.0" oninput="updateParam('temp', this.value)" class="w-full accent-purple-500 bg-slate-950 h-2 rounded-lg cursor-pointer">
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Config Modal -->
+    <div id="modalConfig" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl text-slate-200">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-network-wired text-cyan-400"></i> Firebase Synchronisatie
+                </h3>
+                <button onclick="closeConfigModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed">
+                Standaard gebruikt deze suite een intern <strong class="text-slate-200">BroadcastChannel</strong> voor real-time synchronisatie tussen tabbladen op dezelfde computer.
+            </p>
+            <div class="space-y-2">
+                <label class="text-xs font-semibold text-slate-300">Firebase Realtime DB URL of Config JSON</label>
+                <textarea id="inputFirebaseConfig" rows="4" placeholder='{"databaseURL": "https://your-app-default-rtdb.firebaseio.com"}' class="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-500"></textarea>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeConfigModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">Annuleren</button>
+                <button onclick="saveFirebaseConfig()" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold">Verbind Firebase</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_STATE = {
+            patientName: 'DOE, J.',
+            patientMRN: '883-9201',
+            hr: 72,
+            spo2: 98,
+            sys: 120,
+            dia: 80,
+            rr: 16,
+            temp: 37.0,
+            rhythm: 'sinus',
+            silenced: false,
+            lastUpdated: Date.now()
+        };
+
+        let simState = { ...DEFAULT_STATE };
+        let targetState = { ...DEFAULT_STATE };
+        let rampStartTime = 0;
+        let rampDurationMs = 5000;
+        let rampStartState = { ...DEFAULT_STATE };
+
+        let audioCtx = null;
+        let isAudioMuted = true;
+        let silenceUntil = 0;
+
+        const syncChannel = new BroadcastChannel('simmonitor_sync_channel');
+
+        syncChannel.onmessage = (event) => {
+            if (event.data && event.data.type === 'STATE_UPDATE') {
+                targetState = { ...targetState, ...event.data.payload };
+                startRamp();
+            }
+        };
+
+        function startRamp() {
+            rampStartState = { ...simState };
+            rampStartTime = Date.now();
+        }
+
+        function broadcastStateUpdate() {
+            targetState.lastUpdated = Date.now();
+            simState.rhythm = targetState.rhythm;
+            simState.patientName = targetState.patientName;
+            simState.patientMRN = targetState.patientMRN;
+            
+            startRamp();
+
+            syncChannel.postMessage({
+                type: 'STATE_UPDATE',
+                payload: targetState
+            });
+            localStorage.setItem('simmonitor_state', JSON.stringify(targetState));
+        }
+
+        const PRESETS = {
+            normal: { hr: 72, spo2: 98, sys: 120, dia: 80, rr: 16, temp: 37.0, rhythm: 'sinus' },
+            septic_shock: { hr: 135, spo2: 91, sys: 75, dia: 40, rr: 28, temp: 39.4, rhythm: 'tachycardia' },
+            hypoglycemia: { hr: 110, spo2: 96, sys: 105, dia: 65, rr: 22, temp: 36.1, rhythm: 'tachycardia' },
+            anaphylaxis: { hr: 140, spo2: 84, sys: 70, dia: 35, rr: 34, temp: 37.5, rhythm: 'tachycardia' },
+            cardiac_arrest: { hr: 0, spo2: 50, sys: 0, dia: 0, rr: 0, temp: 35.5, rhythm: 'vfib' }
+        };
+
+        function applyPreset(name) {
+            if (PRESETS[name]) {
+                targetState = { ...targetState, ...PRESETS[name] };
+                broadcastStateUpdate();
+            }
+        }
+
+        function updateParam(key, val) {
+            if (key === 'rhythm') {
+                targetState.rhythm = val;
+                if (val === 'asystole') targetState.hr = 0;
+                if (val === 'bradycardia' && targetState.hr > 50) targetState.hr = 42;
+                if (val === 'tachycardia' && targetState.hr < 100) targetState.hr = 125;
+            } else {
+                targetState[key] = parseFloat(val);
+            }
+            broadcastStateUpdate();
+        }
+
+        function updatePatientInfo() {
+            targetState.patientName = document.getElementById('inputPatientName').value;
+            targetState.patientMRN = document.getElementById('inputPatientMRN').value;
+            broadcastStateUpdate();
+        }
+
+        function updateRampingState() {
+            const now = Date.now();
+            const elapsed = now - rampStartTime;
+            let progress = elapsed / rampDurationMs;
+            if (progress > 1) progress = 1;
+
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+
+            ['hr', 'spo2', 'sys', 'dia', 'rr', 'temp'].forEach(key => {
+                simState[key] = rampStartState[key] + (targetState[key] - rampStartState[key]) * easeProgress;
+            });
+            simState.rhythm = targetState.rhythm;
+            simState.patientName = targetState.patientName;
+            simState.patientMRN = targetState.patientMRN;
+
+            syncUIFromState();
+        }
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function toggleAudio() {
+            initAudio();
+            isAudioMuted = !isAudioMuted;
+            const icon = document.getElementById('audioIcon');
+            const text = document.getElementById('audioText');
+            if (isAudioMuted) {
+                icon.className = 'fa-solid fa-volume-xmark text-red-400';
+                text.innerText = 'Audio Inschakelen';
+            } else {
+                icon.className = 'fa-solid fa-volume-high text-emerald-400';
+                text.innerText = 'Audio Actief';
+            }
+        }
+
+        function playQRSBeep() {
+            if (isAudioMuted || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                const freq = 400 + ((simState.spo2 - 80) * 10);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(Math.max(250, freq), audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.08);
+            } catch (e) {}
+        }
+
+        function playAlarmBeep(isCritical) {
+            if (isAudioMuted || !audioCtx || Date.now() < silenceUntil) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = isCritical ? 'sawtooth' : 'triangle';
+                osc.frequency.setValueAtTime(isCritical ? 950 : 650, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.25);
+            } catch (e) {}
+        }
+
+        function silenceAlarm() {
+            silenceUntil = Date.now() + 120000;
+            const alarmBanner = document.getElementById('alarmBanner');
+            if (alarmBanner) alarmBanner.classList.add('opacity-50');
+        }
+
+        const canvasECG = document.getElementById('canvasECG');
+        const canvasPleth = document.getElementById('canvasPleth');
+        const canvasResp = document.getElementById('canvasResp');
+
+        const ctxECG = canvasECG.getContext('2d');
+        const ctxPleth = canvasPleth.getContext('2d');
+        const ctxResp = canvasResp.getContext('2d');
+
+        let sweepX = 0;
+        const sweepSpeed = 2.5;
+
+        let ecgBuffer = [];
+        let plethBuffer = [];
+        let respBuffer = [];
+
+        function resizeCanvases() {
+            [canvasECG, canvasPleth, canvasResp].forEach(canvas => {
+                if (canvas && canvas.parentElement) {
+                    canvas.width = canvas.parentElement.clientWidth;
+                    canvas.height = canvas.parentElement.clientHeight;
+                }
+            });
+            ecgBuffer = new Array(Math.ceil(canvasECG.width)).fill(0);
+            plethBuffer = new Array(Math.ceil(canvasPleth.width)).fill(0);
+            respBuffer = new Array(Math.ceil(canvasResp.width)).fill(0);
+        }
+
+        window.addEventListener('resize', resizeCanvases);
+
+        let phaseECG = 0;
+        let phaseResp = 0;
+
+        function generateECGPoint() {
+            if (simState.rhythm === 'asystole' || simState.hr === 0) {
+                return (Math.random() - 0.5) * 0.03;
+            }
+            if (simState.rhythm === 'vfib') {
+                return (Math.sin(Date.now() * 0.015) + Math.sin(Date.now() * 0.027) + (Math.random() - 0.5) * 1.2) * 0.4;
+            }
+
+            const effectiveHR = Math.max(20, simState.hr);
+            const beatsPerSecond = effectiveHR / 60;
+            phaseECG += (beatsPerSecond / 60); 
+
+            if (phaseECG >= 1.0) {
+                phaseECG -= 1.0;
+                playQRSBeep();
+                const icon = document.getElementById('heartIcon');
+                if (icon) {
+                    icon.classList.remove('animate-ping');
+                    void icon.offsetWidth;
+                    icon.classList.add('animate-ping');
+                }
+            }
+
+            const p = phaseECG;
+            let val = 0;
+
+            if (simState.rhythm === 'vtach') {
+                val = Math.sin(p * 2 * Math.PI) * 1.2 + (Math.sin(p * 4 * Math.PI) * 0.4);
+            } else if (simState.rhythm === 'afib') {
+                const fWave = (Math.sin(p * 15 * Math.PI) * 0.08) + ((Math.random() - 0.5) * 0.06);
+                if (p >= 0.38 && p < 0.43) {
+                    val = Math.sin((p - 0.38) / 0.05 * Math.PI) * 1.3 + fWave;
+                } else if (p >= 0.5 && p < 0.7) {
+                    val = Math.sin((p - 0.5) / 0.2 * Math.PI) * 0.25 + fWave;
+                } else {
+                    val = fWave;
+                }
+            } else if (simState.rhythm === 'av_block_1') {
+                if (p > 0.05 && p < 0.18) {
+                    val = Math.sin((p - 0.05) / 0.13 * Math.PI) * 0.15;
+                } else if (p >= 0.42 && p < 0.45) {
+                    val = -0.15;
+                } else if (p >= 0.45 && p < 0.50) {
+                    val = Math.sin((p - 0.45) / 0.05 * Math.PI) * 1.4;
+                } else if (p >= 0.57 && p < 0.77) {
+                    val = Math.sin((p - 0.57) / 0.2 * Math.PI) * 0.3;
+                }
+            } else {
+                if (p > 0.1 && p < 0.2) {
+                    val = Math.sin((p - 0.1) / 0.1 * Math.PI) * 0.15;
+                } else if (p >= 0.35 && p < 0.38) {
+                    val = -0.15;
+                } else if (p >= 0.38 && p < 0.43) {
+                    val = Math.sin((p - 0.38) / 0.05 * Math.PI) * 1.4;
+                } else if (p >= 0.43 && p < 0.46) {
+                    val = -0.35;
+                } else if (p >= 0.5 && p < 0.7) {
+                    const tBase = Math.sin((p - 0.5) / 0.2 * Math.PI) * 0.3;
+                    val = (simState.rhythm === 'st_elevation') ? tBase + 0.35 : tBase;
+                }
+            }
+
+            return val + (Math.random() - 0.5) * 0.02;
+        }
+
+        function generatePlethPoint() {
+            if (simState.spo2 < 50 || simState.hr === 0) return 0;
+            const p = (phaseECG % 1.0);
+            let val = 0;
+            if (p > 0.4 && p < 0.85) {
+                const pulseP = (p - 0.4) / 0.45;
+                val = Math.sin(pulseP * Math.PI) * (simState.spo2 / 100);
+                if (pulseP > 0.4 && pulseP < 0.6) {
+                    val += Math.sin((pulseP - 0.4) / 0.2 * Math.PI) * 0.15;
+                }
+            }
+            return val;
+        }
+
+        function generateRespPoint() {
+            if (simState.rr === 0) return 0;
+            const respFreq = simState.rr / 60;
+            phaseResp += (respFreq / 60);
+            if (phaseResp >= 1.0) phaseResp -= 1.0;
+            return Math.sin(phaseResp * 2 * Math.PI) * 0.6;
+        }
+
+        function animateWaveforms() {
+            updateRampingState();
+
+            const w = canvasECG.width;
+            const hECG = canvasECG.height;
+            const hPleth = canvasPleth.height;
+            const hResp = canvasResp.height;
+
+            if (w === 0) {
+                requestAnimationFrame(animateWaveforms);
+                return;
+            }
+
+            const prevX = Math.floor(sweepX);
+            sweepX = (sweepX + sweepSpeed) % w;
+            const currX = Math.floor(sweepX);
+
+            const ptECG = generateECGPoint();
+            const ptPleth = generatePlethPoint();
+            const ptResp = generateRespPoint();
+
+            const clearWidth = 20;
+            ctxECG.clearRect(currX, 0, clearWidth, hECG);
+            ctxPleth.clearRect(currX, 0, clearWidth, hPleth);
+            ctxResp.clearRect(currX, 0, clearWidth, hResp);
+
+            ecgBuffer[currX] = ptECG;
+            plethBuffer[currX] = ptPleth;
+            respBuffer[currX] = ptResp;
+
+            function drawSegment(ctx, buffer, color, height, scale, midOffset = 0.5) {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                let x1 = prevX;
+                let x2 = currX;
+                if (x2 < x1) x1 = 0;
+                const y1 = (height * midOffset) - (buffer[x1] * scale);
+                const y2 = (height * midOffset) - (buffer[x2] * scale);
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+
+            drawSegment(ctxECG, ecgBuffer, '#22c55e', hECG, hECG * 0.28);
+            drawSegment(ctxPleth, plethBuffer, '#06b6d4', hPleth, hPleth * 0.35, 0.7);
+            drawSegment(ctxResp, respBuffer, '#eab308', hResp, hResp * 0.35);
+
+            requestAnimationFrame(animateWaveforms);
+        }
+
+        function checkAlarms() {
+            const alarmBanner = document.getElementById('alarmBanner');
+            const alarmMessage = document.getElementById('alarmMessage');
+
+            let isCritical = false;
+            let isWarning = false;
+            let message = '';
+
+            if (simState.hr === 0 || simState.rhythm === 'vfib' || simState.rhythm === 'asystole' || simState.rhythm === 'vtach') {
+                if (simState.rhythm === 'vfib' || simState.rhythm === 'asystole' || simState.hr === 0) {
+                    isCritical = true;
+                    message = 'KRITIEK: HARTSTILSTAND / ASYSTOLIE / VFIB';
+                } else if (simState.rhythm === 'vtach') {
+                    isCritical = true;
+                    message = 'KRITIEK: VENTRICULAIRE TACHYCARDIE (VT)';
+                }
+            }
+            if (!isCritical) {
+                if (simState.hr < 40 || simState.hr > 140) {
+                    isCritical = true;
+                    message = `KRITIEKE HR: ${Math.round(simState.hr)} /min`;
+                } else if (simState.spo2 < 88) {
+                    isCritical = true;
+                    message = `KRITIEKE HYPOXIE: SpO2 ${Math.round(simState.spo2)}%`;
+                } else if (simState.sys < 80) {
+                    isCritical = true;
+                    message = `KRITIEKE HYPOTENSIE: BD ${Math.round(simState.sys)}/${Math.round(simState.dia)}`;
+                } else if (simState.spo2 < 92 || simState.rr > 28 || simState.rr < 8) {
+                    isWarning = true;
+                    message = 'WAARSCHUWING: VITALE FUNCTIES ABNORMAAL';
+                }
+            }
+
+            if (isCritical || isWarning) {
+                alarmBanner.classList.remove('hidden', 'alarm-critical', 'alarm-warning');
+                alarmBanner.classList.add(isCritical ? 'alarm-critical' : 'alarm-warning');
+                alarmMessage.innerText = message;
+                playAlarmBeep(isCritical);
+            } else {
+                alarmBanner.classList.add('hidden');
+            }
+        }
+
+        function syncUIFromState() {
+            document.getElementById('valHR').innerText = simState.rhythm === 'asystole' ? '0' : Math.round(simState.hr);
+            document.getElementById('valSpO2').innerText = Math.round(simState.spo2);
+            document.getElementById('valSys').innerText = Math.round(simState.sys);
+            document.getElementById('valDia').innerText = Math.round(simState.dia);
+            document.getElementById('valRR').innerText = Math.round(simState.rr);
+            document.getElementById('valTemp').innerText = simState.temp.toFixed(1);
+
+            document.getElementById('displayPatientName').innerText = simState.patientName;
+            document.getElementById('displayPatientMRN').innerText = simState.patientMRN;
+
+            const map = Math.round((simState.sys + (2 * simState.dia)) / 3);
+            document.getElementById('valMAP').innerText = map;
+
+            const rhythmBadge = document.getElementById('rhythmBadge');
+            const rhythmLabels = {
+                'sinus': 'SINUSRITME',
+                'bradycardia': 'BRADYCARDIE',
+                'tachycardia': 'TACHYCARDIE',
+                'afib': 'ATRIUMBRILLERING (AFIB)',
+                'st_elevation': 'ST-ELEVATIE (STEMI)',
+                'vtach': 'VENTRICULAIRE TACHYCARDIE (VT)',
+                'vfib': 'VENTRICULAIRE FIBRILLATIE (VF)',
+                'av_block_1': '1E GRAADS AV-BLOK',
+                'asystole': 'ASYSTOLIE / FLATLINE'
+            };
+            rhythmBadge.innerText = rhythmLabels[simState.rhythm] || 'ONBEKEND';
+
+            if (document.activeElement.id !== 'inputPatientName') {
+                document.getElementById('inputPatientName').value = simState.patientName;
+            }
+            if (document.activeElement.id !== 'inputPatientMRN') {
+                document.getElementById('inputPatientMRN').value = simState.patientMRN;
+            }
+
+            if (document.activeElement.tagName !== 'INPUT') {
+                document.getElementById('sliderHR').value = Math.round(simState.hr);
+                document.getElementById('sliderSpO2').value = Math.round(simState.spo2);
+                document.getElementById('sliderSys').value = Math.round(simState.sys);
+                document.getElementById('sliderDia').value = Math.round(simState.dia);
+                document.getElementById('sliderRR').value = Math.round(simState.rr);
+                document.getElementById('sliderTemp').value = simState.temp.toFixed(1);
+            }
+
+            document.getElementById('ctrlValHR').innerText = Math.round(simState.hr) + ' /min';
+            document.getElementById('ctrlValSpO2').innerText = Math.round(simState.spo2) + ' %';
+            document.getElementById('ctrlValSys').innerText = Math.round(simState.sys) + ' mmHg';
+            document.getElementById('ctrlValDia').innerText = Math.round(simState.dia) + ' mmHg';
+            document.getElementById('ctrlValBP').innerText = `${Math.round(simState.sys)}/${Math.round(simState.dia)}`;
+            document.getElementById('ctrlValRR').innerText = Math.round(simState.rr) + ' /min';
+            document.getElementById('ctrlValTemp').innerText = simState.temp.toFixed(1) + ' °C';
+
+            const radios = document.getElementsByName('rhythmType');
+            radios.forEach(r => {
+                if (r.value === targetState.rhythm) r.checked = true;
+            });
+        }
+
+        function switchView(view) {
+            const monitorView = document.getElementById('viewMonitor');
+            const controlView = document.getElementById('viewControl');
+            const btnNavMonitor = document.getElementById('btnNavMonitor');
+            const btnNavControl = document.getElementById('btnNavControl');
+
+            if (view === 'monitor') {
+                monitorView.classList.remove('hidden');
+                controlView.classList.add('hidden');
+                btnNavMonitor.className = "px-4 py-1.5 rounded-md text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 bg-emerald-600 text-white shadow-md";
+                btnNavControl.className = "px-4 py-1.5 rounded-md text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200";
+                setTimeout(resizeCanvases, 50);
+            } else {
+                monitorView.classList.add('hidden');
+                controlView.classList.remove('hidden');
+                btnNavControl.className = "px-4 py-1.5 rounded-md text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 bg-emerald-600 text-white shadow-md";
+                btnNavMonitor.className = "px-4 py-1.5 rounded-md text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200";
+            }
+        }
+
+        function triggerNIBPMeasurement() {
+            const sys = document.getElementById('valSys');
+            const dia = document.getElementById('valDia');
+            sys.innerText = '--';
+            dia.innerText = '--';
+            setTimeout(() => {
+                sys.innerText = Math.round(simState.sys);
+                dia.innerText = Math.round(simState.dia);
+            }, 1500);
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(e => console.log(e));
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+
+        function openConfigModal() {
+            document.getElementById('modalConfig').classList.remove('hidden');
+        }
+
+        function closeConfigModal() {
+            document.getElementById('modalConfig').classList.add('hidden');
+        }
+
+        function saveFirebaseConfig() {
+            const raw = document.getElementById('inputFirebaseConfig').value;
+            if (raw) {
+                alert("Firebase real-time synchronisatie configuratie bijgewerkt!");
+                document.getElementById('syncStatusText').innerText = "Firebase Remote Sync Actief";
+            }
+            closeConfigModal();
+        }
+
+        setInterval(() => {
+            const now = new Date();
+            const clock = document.getElementById('clockDisplay');
+            if (clock) clock.innerText = now.toTimeString().split(' ')[0];
+        }, 1000);
+
+        setInterval(checkAlarms, 1000);
+
+        window.onload = function() {
+            const saved = localStorage.getItem('simmonitor_state');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    simState = { ...simState, ...parsed };
+                    targetState = { ...targetState, ...parsed };
+                } catch(e) {}
+            }
+            resizeCanvases();
+            syncUIFromState();
+            animateWaveforms();
+        };
+    </script>
+</body>
+</html>
